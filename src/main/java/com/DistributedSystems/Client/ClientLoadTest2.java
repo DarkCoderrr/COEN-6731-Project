@@ -8,6 +8,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -24,6 +27,7 @@ public class ClientLoadTest2 {
     private static final AtomicInteger TOTAL_SUCCESSFUL_REQUESTS = new AtomicInteger(0);
     private static final AtomicInteger TOTAL_FAILED_REQUESTS = new AtomicInteger(0);
     private static final Object MONITOR = new Object();
+    private final List<Long> latencyList = Collections.synchronizedList(new ArrayList<>());
 
     private final Gson gson = new Gson();
     private final String apiUrl;
@@ -52,13 +56,36 @@ public class ClientLoadTest2 {
         Instant end = Instant.now();
         Duration duration = Duration.between(start, end);
         long elapsedTime = duration.toMillis();
+        int sum = 0;
+        for (int i = 0; i < latencyList.size(); i++) {
+            sum += latencyList.get(i);
+        }
+        double mean = (double) sum / latencyList.size();
+        Collections.sort(latencyList);
+        int middle = latencyList.size() / 2;
+        double median;
+        if (latencyList.size() % 2 == 1) {
+            median = latencyList.get(middle);
+        } else {
+            median = (latencyList.get(middle - 1) + latencyList.get(middle)) / 2.0;
+        }
+        int index99 = (int) Math.floor(latencyList.size() * 0.99) - 1;
+        Long percentile99 = latencyList.get(index99);
+
+       
+        Long max = Collections.max(latencyList);
+        Long min = Collections.min(latencyList);
 
         float throughput = (float) NUM_OF_REQUESTS / elapsedTime * 1000;
         System.out.println("All requests Provided Response successfully in " + elapsedTime + " ms.");
         System.out.println("Total Successful requests: " + TOTAL_SUCCESSFUL_REQUESTS.get());
         System.out.println("Total Failed requests: " + TOTAL_FAILED_REQUESTS.get());
         System.out.println("Throughput: " + throughput + " requests/s.");
-        System.out.println("Average Response time: " + (float)elapsedTime/TOTAL_SUCCESSFUL_REQUESTS.get());
+        System.out.println("Maximum value: " + max);
+        System.out.println("Minimum value: " + min);
+        System.out.println("Median: " + median);
+        System.out.println("Mean: " + mean);
+        System.out.println("99th percentile value: " + percentile99);
     }
 
     private class ApiClient implements Runnable {
@@ -85,7 +112,7 @@ public class ClientLoadTest2 {
                     (int) (Math.random() * 360) + 1,
                     (int) (Math.random() * 40) + 1
                 );
-
+                Instant startTime = Instant.now();
                 int retryCount = 0;
                 while (retryCount <= MAX_RETRY_ATTEMPTS) {
                     try {
@@ -98,9 +125,12 @@ public class ClientLoadTest2 {
                             .build();
                         HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
                         System.out.println("Request " + skierID + " status code: " + response.statusCode());
+                        Instant endTime = Instant.now();
+                        long latency = Duration.between(startTime, endTime).toMillis();
                         if (response.statusCode() == 201) {
                         	TOTAL_SUCCESSFUL_REQUESTS.getAndIncrement();
                             SEMAPHORE.release();
+                            latencyList.add(latency);
                             break; 
                         } else if (response.statusCode() >= 400 && response.statusCode() < 500) {
                            

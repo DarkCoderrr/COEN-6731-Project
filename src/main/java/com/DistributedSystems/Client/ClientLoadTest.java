@@ -10,6 +10,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -26,6 +29,7 @@ public class ClientLoadTest {
     private static final AtomicInteger TOTAL_SUCCESSFUL_REQUESTS = new AtomicInteger(0);
     private static final AtomicInteger TOTAL_FAILED_REQUESTS = new AtomicInteger(0);
     private static final Object MONITOR = new Object();
+    private final List<Long> latencyList = Collections.synchronizedList(new ArrayList<>());
 
     private final Gson gson = new Gson();
     private final String apiUrl;
@@ -64,13 +68,38 @@ public class ClientLoadTest {
         Instant end = Instant.now();
         Duration duration = Duration.between(start, end);
         long elapsedTime = duration.toMillis();
+        int sum = 0;
+        for (int i = 0; i < latencyList.size(); i++) {
+            sum += latencyList.get(i);
+        }
+        double mean = (double) sum / latencyList.size();
+        Collections.sort(latencyList);
+        int middle = latencyList.size() / 2;
+        double median;
+        if (latencyList.size() % 2 == 1) {
+            median = latencyList.get(middle);
+        } else {
+            median = (latencyList.get(middle - 1) + latencyList.get(middle)) / 2.0;
+        }
+        double index99 = Math.floor(latencyList.size() * 0.99) - 1;
+        double percentile99 = latencyList.get((int) index99);
+
+       
+        double max = Collections.max(latencyList);
+        double min = Collections.min(latencyList);
+
+        
 
         float throughput = (float) NUM_OF_REQUESTS / elapsedTime * 1000;
         System.out.println("All requests Provided Response successfully in " + elapsedTime + " ms.");
         System.out.println("Total Successful requests: " + TOTAL_SUCCESSFUL_REQUESTS.get());
         System.out.println("Total Failed requests: " + TOTAL_FAILED_REQUESTS.get());
         System.out.println("Throughput: " + throughput + " requests/s.");
-        System.out.println("Average Response time: " + (float)elapsedTime/TOTAL_SUCCESSFUL_REQUESTS.get());
+        System.out.println("Maximum value: " + max);
+        System.out.println("Minimum value: " + min);
+        System.out.println("Median: " + median);
+        System.out.println("Mean: " + mean);
+        System.out.println("99th percentile value: " + percentile99);
 
         try {
             csvWriter.close();
@@ -83,6 +112,7 @@ public class ClientLoadTest {
         private final String apiUrl;
         private final FileWriter csvWriter;
         private final int TOTAL_RETRY_ATTEMPTS = 5;
+        
 
         public ApiClient(String apiUrl, FileWriter csvWriter) {
             this.apiUrl = apiUrl;
@@ -127,6 +157,7 @@ public class ClientLoadTest {
                                 TOTAL_SUCCESSFUL_REQUESTS.getAndIncrement();
                                 csvWriter.append(startTime.toString() + ",POST," + latency + "," + response.statusCode() + "\n");
                                 csvWriter.flush();
+                                latencyList.add(latency);
                             }
                             SEMAPHORE.release();
                             break; 
